@@ -1,4 +1,5 @@
-﻿using System.Collections;
+using System;
+using System.Collections;
 using System.Collections.Generic;
 using NUnit.Framework;
 using UnityEngine;
@@ -92,6 +93,11 @@ namespace Tests
             obj = LuaUtility.FromLua<TestLuaInt>(str);
             Assert.IsNotNull(obj);
             Assert.AreEqual(obj.i, -1);
+
+            str = @"{i=0}";
+            obj = LuaUtility.FromLua<TestLuaInt>(str);
+            Assert.IsNotNull(obj);
+            Assert.AreEqual(obj.i, 0);
         }
 
         [Test]
@@ -544,6 +550,44 @@ namespace Tests
             Assert.IsTrue(str.Contains("E = 3,"));
         }
 
+        [Test]
+        public void TestToLuaPolymorphic()
+        {
+            var data = new List<TestAnimal>();
+            data.Add(new TestDog());
+            data.Add(new TestCat());
+            var str = LuaUtility.ToLua(data);
+            Assert.IsNotNull(str);
+            var dog_type_name = typeof(TestDog).FullName+", "+typeof(TestDog).Assembly.GetName().Name;
+            var cat_type_name = typeof(TestCat).FullName+", "+typeof(TestCat).Assembly.GetName().Name;
+            Assert.IsTrue(str.Contains(string.Format("[\"$type\"] = \"{0}\"", dog_type_name)));
+            Assert.IsTrue(str.Contains(string.Format("[\"$type\"] = \"{0}\"", cat_type_name)));
+            Assert.IsFalse(str.Contains("TestAnimal"));
+        }
+
+        //测试多态
+        [Test]
+        public void TestFromLuaPolymorphic() 
+        {
+            var dog_type_name = typeof(TestDog).AssemblyQualifiedName;
+            var dog_code = "{[\"$type\"] = \""+dog_type_name+"\", type=\"dog\", can_run=true}";
+            var cat_type_name = typeof(TestCat).AssemblyQualifiedName;
+            var cat_code = "{[\"$type\"] = \""+cat_type_name+"\", type=\"cat\", life=9}";
+            string test_code = "return {"+dog_code+", "+cat_code+"}";
+            Debug.LogFormat("LuaUtilityTest[574:49] test_code:{0}", test_code);
+            // LuaUtility.IsShowLog = true;
+            var obj = LuaUtility.FromLua<List<TestAnimal>>(test_code);
+            // LuaUtility.IsShowLog = false;
+            Assert.IsNotNull(obj);
+            Assert.IsNotNull(obj[0]);
+            Assert.IsNotNull(obj[1]);
+            Assert.AreEqual(obj[0].GetType(), typeof(TestDog));
+            Assert.AreEqual(obj[1].GetType(), typeof(TestCat));
+            Assert.AreEqual(obj[0].type, "dog");
+            Assert.AreEqual(obj[1].type, "cat");
+            Assert.AreEqual((obj[0] as TestDog).can_run, true);
+            Assert.AreEqual((obj[1] as TestCat).life, 9);
+        }
     }
 
     public class TestLuaInt
@@ -636,4 +680,27 @@ namespace Tests
         }
     }
 
+    //测试多态
+    public class TestAnimal
+    {
+        public string type = "Animal";
+    }
+
+    public class TestDog : TestAnimal
+    {
+        public bool can_run = true;
+        public TestDog()
+        {
+            type = "Dog";
+        }
+    }
+
+    public class TestCat : TestAnimal
+    {
+        public int life = 9;
+        public TestCat()
+        {
+            type = "Cat";
+        }
+    }
 }
