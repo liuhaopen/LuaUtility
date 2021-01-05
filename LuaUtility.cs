@@ -14,14 +14,19 @@ public class LuaUtility
 
     public static bool IsShowLog { get => isShowLog; set => isShowLog = value; }
 
-    public static string ToLua(object obj, int level=1)
+    public static string ToLua(object obj)
     {
-        Type property_type = obj.GetType();
-        Type list_type = typeof(IList);
-        Type dic_type = typeof(IDictionary);
+        return ToLua(obj, 1, null);
+    }
+
+    static Type list_type = typeof(IList);
+    static Type dic_type = typeof(IDictionary);
+    private static string ToLua(object obj, int level, Type obj_member_type)
+    {
+        Type type = obj.GetType();
         StringBuilder content = new StringBuilder();
         string tab_str = GetStrMutiple(TabStr, level);
-        if (property_type.IsPrimitive)
+        if (type.IsPrimitive)
         {
             if (obj is bool)
             {
@@ -30,28 +35,29 @@ public class LuaUtility
             else
                 content.Append(obj.ToString());
         }
-        else if (property_type == typeof(string))
+        else if (type == typeof(string))
         {
             content.Append("\"" + obj.ToString() + "\"");
         }
-        else if (property_type.IsEnum)
+        else if (type.IsEnum)
         {
             content.Append((int)obj);
         }
-        else if (list_type.IsAssignableFrom(property_type))
+        else if (list_type.IsAssignableFrom(type))
         {
             content.Append("{\n");
             IEnumerable list_info = obj as IEnumerable;
+            Type member_type = type.GetGenericArguments()[0];
             foreach (var list_item in list_info)
             {
                 content.Append(tab_str);
-                content.Append(ToLua(list_item, level+1));
+                content.Append(ToLua(list_item, level+1, member_type));
                 content.Append(",\n");
             }
             content.Append(GetStrMutiple(TabStr, level-1));
             content.Append("}");
         }
-        else if (dic_type.IsAssignableFrom(property_type))
+        else if (dic_type.IsAssignableFrom(type))
         {
             content.Append("{\n");
             IDictionary dic_info = obj as IDictionary;
@@ -60,6 +66,7 @@ public class LuaUtility
                 var itemKey = item.GetType().GetProperty("Key").GetValue(item, null);
                 var itemKeyType = dic_info.GetType().GetGenericArguments()[0];
                 var itemValue = item.GetType().GetProperty("Value").GetValue(item, null);
+                var itemValueType = dic_info.GetType().GetGenericArguments()[1];
                 string itemKeyStr;
                 if (itemKeyType == typeof(string))
                     itemKeyStr = itemKey.ToString();
@@ -67,7 +74,7 @@ public class LuaUtility
                     itemKeyStr = "["+itemKey.ToString()+"]";
                 content.Append(tab_str);
                 content.Append(itemKeyStr + " = ");
-                content.Append(ToLua(itemValue, level+1));
+                content.Append(ToLua(itemValue, level+1, itemValueType));
                 content.Append(",\n");
             }
             content.Append(GetStrMutiple(TabStr, level-1));
@@ -76,7 +83,7 @@ public class LuaUtility
         else
         {
             content.Append("{\n");
-            Type type = obj.GetType();
+            // Type type = obj.GetType();
             var contractAttr = type.GetCustomAttribute(typeof(DataContractAttribute));
             //如果类有 DataContract 特性的话，就只导出其带有 DataMember 特性的字段，否则导出所有 public 字段
             bool isNeedAttr = contractAttr != null;
@@ -84,6 +91,9 @@ public class LuaUtility
             // UnityEngine.Debug.Log("members.Length : "+members.Length.ToString());
             if (members != null && members.Length > 0)
             {
+                //只有实际类型和定义的类型不一样才需要加上类型信息，即多态时才加
+                if (obj_member_type != type && level > 1)
+                    content.Append(tab_str + string.Format("[\"$type\"] = \"{0}\",\n", type.FullName+", "+type.Assembly.GetName().Name));
                 foreach (MemberInfo p in members)
                 {
                     var isNeedExport = true;
@@ -97,15 +107,18 @@ public class LuaUtility
                     {
                         object obj_value = null;
                         FieldInfo field = p as FieldInfo;
+                        Type member_type = null;
                         if(field!=null && !field.IsStatic)
                         {
                             obj_value = field.GetValue(obj);
+                            member_type = field.FieldType;
                         }
                         else
                         {
                             PropertyInfo pro = p as PropertyInfo;
                             if (pro != null && pro.CanRead && pro.CanWrite)
                             {
+                                member_type = pro.PropertyType;
                                 // Debug.Log("pro name : "+pro.Name+" "+type.Name+" mtype:"+pro.MemberType);
                                 try {
                                     obj_value = pro.GetValue(obj);
@@ -116,7 +129,7 @@ public class LuaUtility
                         if (obj_value != null)
                         {
                             content.Append(tab_str + p.Name + " = ");
-                            content.Append(ToLua(obj_value, level+1));
+                            content.Append(ToLua(obj_value, level+1, member_type));
                             content.Append(",\n");
                         }
                     }
@@ -151,6 +164,10 @@ public class LuaUtility
         public string str;
         public int i;
         public double d;
+        public override string ToString()
+        {
+            return string.Format("Token:{0} str:{1} i:{2} d:{3}", token, str, i, d);
+        }
     }
     public enum KeyWord
     {
@@ -169,7 +186,7 @@ public class LuaUtility
         EOZ
     }
 
-    public class LexState
+    public class LexState : ICloneable
     {
         public static int EOZ = -1;
         public int current;
@@ -220,7 +237,6 @@ public class LuaUtility
         private static int SPACEBIT = 3;
         private static int XDIGITBIT = 4;
 
-    
         public LexState(string _code)
         {
             InitReserved();
@@ -230,10 +246,19 @@ public class LuaUtility
             MoveToNextToken();
         }
 
+        public void UpdateData(LexState ls)
+        {
+            this.code = ls.code;
+            this.code_i = ls.code_i;
+            this.t = ls.t;
+            this.lookahead = ls.lookahead;
+            this.current = ls.current;
+        }
+
         public string Dump()
         {
             StringBuilder sb = new StringBuilder();
-            sb.Append("current : "+current+" token:"+t.token+" str:"+t.str+" code_i:"+code_i);
+            sb.Append("current : "+current+" token:"+t.ToString()+" code_i:"+code_i+" lookahead:"+(lookahead!=null?lookahead.ToString():"null"));
             return sb.ToString();
         }
 
@@ -577,6 +602,11 @@ public class LuaUtility
             return 0;
         }
 
+        public object Clone()
+        {
+            return this.MemberwiseClone();
+        }
+
     }
 
     private static object ParseExp(LexState ls, Type type)
@@ -644,10 +674,32 @@ public class LuaUtility
         return null;
     }
 
+    private static Type TryGetRealType(LexState ls)
+    {
+        Type result = null;
+        if (ls.t.token == (int)'[')
+        {
+            ls.ReadAheadToken();
+            if (ls.lookahead.token == (int)KeyWord.String && ls.lookahead.str == "$type")
+            {
+                ls.ReadAheadToken();
+                ls.ReadAheadToken();
+                ls.ReadAheadToken(); 
+                var type_full_name = ls.lookahead.str;
+                if (settings != null && settings.CustomTypeDic != null && settings.CustomTypeDic.ContainsKey(type_full_name))
+                    result = settings.CustomTypeDic[type_full_name];
+                else
+                    result = Type.GetType(type_full_name);
+                Assert.IsNotNull(result, "cannot find type by name : "+(type_full_name));
+                // SceneEditorNS.PathPointInfoData
+            }
+        }
+        return result;
+    }
+
     private static object ParseTableConstructor(LexState ls, Type type)
     {
         Token t = ls.t;
-        Token ahead = ls.lookahead;
         if (t.token == (int)'{')
         {
             ls.MoveToNextToken();
@@ -655,11 +707,19 @@ public class LuaUtility
             if (type != null)
             {
                 Log("start table constructor for type : "+type.Name);
+                var old_ls_dump = ls.Dump();
+                var backup = ls.Clone();
+                var realType = TryGetRealType(ls);
+                // ls = backup as LexState;
+                ls.UpdateData(backup as LexState);
+                if (realType != null)
+                    type = realType;
+                
                 ret = System.Activator.CreateInstance(type);
                 Assert.IsNotNull(ret, "cannot create instance for type : "+type.Name);
             }
             var isOk = ParseFieldList(ls, ref ret, type);
-            Log("end table constructor for type : "+(type!=null?type.Name:"unknow type")+" isOk:"+isOk+" token is }"+(ls.t.token == (int)'}')+" token:"+ls.t.token);
+            Log("end table constructor for type : "+(type!=null?type.Name:"unknow type")+" isOk:"+isOk+" token is }"+(ls.t.token == (int)'}')+" token:"+ls.t);
             if (isOk && ls.t.token == (int)'}')
             {
                 ls.MoveToNextToken();
@@ -676,6 +736,7 @@ public class LuaUtility
     //FieldList ::= Field {FieldSep Field} [FieldSep]
     private static bool ParseFieldList(LexState ls, ref object obj, Type type)
     {
+        Log(string.Format("obj:{0} type:{1} ls:{2}", obj, type, ls.Dump()));
         int index = 0;
         var isSep = false;
         do 
@@ -747,8 +808,12 @@ public class LuaUtility
     {
         if (fieldType.IsEnum)
             return Enum.ToObject(fieldType, val);
-        else
+        else if (val.GetType() != fieldType && !val.GetType().IsSubclassOf(fieldType))
+        {
             return Convert.ChangeType(val, fieldType);
+        }
+        else
+            return val;
     }
 
     private static void AssignValue(LexState ls, ref object obj, Type type, int index, object keyNameObj)
@@ -781,13 +846,16 @@ public class LuaUtility
 
                 if (keyNameObj != null && keyNameObj is int)
                     index = (int)keyNameObj-1;
-                Debug.Log("ParseField type : "+type.Name+" index:"+index+" list.Count:"+list.Count);
+                // Debug.Log("ParseField type : "+type.Name+" index:"+index+" list.Count:"+list.Count);
                 if (list.Count <= index)
                 {
                     var new_count = index-list.Count+1;
                     for (int i = 0; i < new_count; i++)
                     {
-                        list.Add(System.Activator.CreateInstance(fieldType));
+                        if (fieldType != typeof(string))
+                            list.Add(System.Activator.CreateInstance(fieldType));
+                        else
+                            list.Add("");
                     }
                 }
                 list[index] = ConvertToRealType(val, fieldType);
@@ -873,6 +941,10 @@ public class LuaUtility
             ls.MoveToNextToken();
             ret = ParseExp(ls, type);
         }
+        else if (ls.t.token == (int)'{')
+        {
+            ret = ParseExp(ls, type);
+        }
         else if (ls.t.token == (int)KeyWord.Local)
         {
             ls.MoveToNextToken();
@@ -889,6 +961,11 @@ public class LuaUtility
         return ret;
     }
 
+    public class Settings
+    {
+        public Dictionary<string, Type> CustomTypeDic;
+    }
+
     /*  
     支持所解析的 lua BNF:
         Exp ::= nil | false | true | Nunber | String | TableconStructor
@@ -897,12 +974,13 @@ public class LuaUtility
         Field ::= ‘[’ Exp ‘]’ ‘=’ Exp | Name ‘=’ Exp | Exp
         FieldSep ::= ‘,’ | ‘;’
     */
-    public static T FromLua<T>(string code) 
+    public static T FromLua<T>(string code, Settings settings=null) 
     { 
-        return (T)FromLua(code, typeof(T)); 
+        return (T)FromLua(code, typeof(T), settings); 
     }
 
-    public static object FromLua(string code, Type type)
+    private static Settings settings;
+    public static object FromLua(string code, Type type, Settings settings=null)
     {
         if (string.IsNullOrEmpty(code))
             return null;
@@ -912,6 +990,7 @@ public class LuaUtility
         if (type.IsAbstract || type.IsSubclassOf(typeof(MonoBehaviour)))
             throw new ArgumentException("Cannot deserialize Lua to new instances of type '" + type.Name + ".'");
 
+        LuaUtility.settings = settings;
         return FromLuaInternal(code, type);
     }
 }
