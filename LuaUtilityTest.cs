@@ -588,6 +588,62 @@ namespace Tests
             Assert.AreEqual((obj[0] as TestDog).can_run, true);
             Assert.AreEqual((obj[1] as TestCat).life, 9);
         }
+
+        [Test]
+        public void TestMultiLineStr()
+        {
+            var test_str = @"1.哈哈哈
+                2。行要 国为\n3.line33333
+                4.asdfes
+
+                5.seirewsl
+                6。槈吸灯这；要
+            ";
+            var obj = new TestLuaString(){str=test_str};
+            var code = LuaUtility.ToLua(obj);
+            Debug.LogFormat("LuaUtilityTest[604:50] code:{0}", code);
+            var obj_new = LuaUtility.FromLua<TestLuaString>("return "+code);
+            Assert.IsNotNull(obj_new);
+            Assert.AreEqual(test_str, obj_new.str);
+        }
+
+        [Test]
+        public void TestFromLuaStaticArray()
+        {
+            var obj = new TestDoubleStaticArray();
+            for (int i = 0; i < obj.ds.Length; i++)
+            {
+                obj.ds[i] = i;
+            }
+            var code = LuaUtility.ToLua(obj);
+            Debug.LogFormat("LuaUtilityTest[604:50 TestToLuaStaticArray] code:{0}", code);
+            for (int i = 0; i < obj.ds.Length; i++)
+            {
+                Assert.IsTrue(code.Contains(string.Format("{0},", i)));
+            }
+        }
+
+        [Test]
+        public void TestToLuaStaticArray()
+        {
+            var code = @"{ds={0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11}}";
+            var obj_new = LuaUtility.FromLua<TestDoubleStaticArray>("return "+code);
+            Assert.IsNotNull(obj_new);
+            Assert.AreEqual(12, obj_new.ds.Length);
+            for (int i = 0; i < obj_new.ds.Length; i++)
+            {
+                Assert.AreEqual(i, obj_new.ds[i]);
+            }
+
+            var code2 = @"{ds={12, 33.80, 55.123, }}";
+            var obj_new2 = LuaUtility.FromLua<TestDoubleStaticArray>("return "+code2);
+            Assert.IsNotNull(obj_new2);
+            Assert.AreEqual(3, obj_new2.ds.Length);
+            AssertFloat(12, obj_new2.ds[0]);
+            AssertFloat(33.80, obj_new2.ds[1]);
+            AssertFloat(55.123, obj_new2.ds[2]);
+
+        }
     }
 
     public class TestLuaInt
@@ -639,7 +695,7 @@ namespace Tests
         public List<TestLuaInt> data; 
     }
 
-    public class TestDataArray
+    public class TestDoubleStaticArray
     {
         public double[] ds = new double[12];
     }
