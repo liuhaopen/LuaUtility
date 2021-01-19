@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 using System.Reflection;
 using System.Runtime.Serialization;
 using System.Text;
@@ -9,20 +10,27 @@ using UnityEngine.Assertions;
 
 public class LuaUtility
 {
+    public class ToLuaSetting
+    {
+        public bool SkipProperty = false;
+        public int MaxLevel = -1;
+    }
     private static bool isShowLog = false;
     static string TabStr = "\t";
 
     public static bool IsShowLog { get => isShowLog; set => isShowLog = value; }
 
-    public static string ToLua(object obj)
+    public static string ToLua(object obj, ToLuaSetting setting=null)
     {
-        return ToLua(obj, 1, null);
+        return ToLua(obj, 1, null, setting);
     }
 
     static Type list_type = typeof(IList);
     static Type dic_type = typeof(IDictionary);
-    private static string ToLua(object obj, int level, Type obj_member_type)
+    private static string ToLua(object obj, int level, Type obj_member_type, ToLuaSetting setting)
     {
+        if (setting != null && setting.MaxLevel != -1 && level >= setting.MaxLevel)
+            return "";
         Type type = obj.GetType();
         StringBuilder content = new StringBuilder();
         string tab_str = GetStrMutiple(TabStr, level);
@@ -37,7 +45,16 @@ public class LuaUtility
         }
         else if (type == typeof(string))
         {
-            content.Append("\"" + obj.ToString() + "\"");
+            // var str = obj.ToString().Replace("\n", "\\\n");
+            var str = obj.ToString();
+            var symbol = "\"";
+            var symbol_end = symbol;
+            if (str.IndexOf("\n") != -1)
+            {
+                symbol = "[[";
+                symbol_end = "]]";
+            }
+            content.Append(symbol + str + symbol_end); 
         }
         else if (type.IsEnum)
         {
@@ -47,11 +64,17 @@ public class LuaUtility
         {
             content.Append("{\n");
             IEnumerable list_info = obj as IEnumerable;
-            Type member_type = type.GetGenericArguments()[0];
+            Type member_type = null;
+            var gneric_args = type.GetGenericArguments();
+            if (gneric_args != null && gneric_args.Length > 0)
+                member_type = gneric_args[0];
+            else
+                member_type = type.GetElementType();
+            
             foreach (var list_item in list_info)
             {
                 content.Append(tab_str);
-                content.Append(ToLua(list_item, level+1, member_type));
+                content.Append(ToLua(list_item, level+1, member_type, setting));
                 content.Append(",\n");
             }
             content.Append(GetStrMutiple(TabStr, level-1));
@@ -74,7 +97,7 @@ public class LuaUtility
                     itemKeyStr = "["+itemKey.ToString()+"]";
                 content.Append(tab_str);
                 content.Append(itemKeyStr + " = ");
-                content.Append(ToLua(itemValue, level+1, itemValueType));
+                content.Append(ToLua(itemValue, level+1, itemValueType, setting));
                 content.Append(",\n");
             }
             content.Append(GetStrMutiple(TabStr, level-1));
@@ -102,9 +125,9 @@ public class LuaUtility
                         object[] objAttrs = p.GetCustomAttributes(typeof(DataMemberAttribute), true);
                         isNeedExport = objAttrs != null && objAttrs.Length > 0;
                     }
-                    // UnityEngine.Debug.Log("objAttrs.Length : "+objAttrs.Length.ToString()+ " field!=null:"+(field!=null).ToString());
                     if (isNeedExport)
                     {
+                        // Debug.LogFormat("LuaUtility[107:06] p.ToString():{0}", p.ToString());
                         object obj_value = null;
                         FieldInfo field = p as FieldInfo;
                         Type member_type = null;
@@ -113,7 +136,7 @@ public class LuaUtility
                             obj_value = field.GetValue(obj);
                             member_type = field.FieldType;
                         }
-                        else
+                        else if (setting == null || !setting.SkipProperty)
                         {
                             PropertyInfo pro = p as PropertyInfo;
                             if (pro != null && pro.CanRead && pro.CanWrite)
@@ -129,7 +152,7 @@ public class LuaUtility
                         if (obj_value != null)
                         {
                             content.Append(tab_str + p.Name + " = ");
-                            content.Append(ToLua(obj_value, level+1, member_type));
+                            content.Append(ToLua(obj_value, level+1, member_type, setting));
                             content.Append(",\n");
                         }
                     }
@@ -369,6 +392,7 @@ public class LuaUtility
         {
             NextChar();
             int start_i = code_i;
+            token.str = "";
             while (current != del)
             {
                 if (current == EOZ || current == '\n' || current == '\r')
@@ -376,13 +400,19 @@ public class LuaUtility
                     LuaUtility.ThrowError("unfinished string");
                     break;
                 }
-                // else if ()//TODO:处理\换行符号
+                // else if (current == '\\')//CAT_TODO:处理\\符号
+                // {
+                //     token.str += code.Substring(start_i, code_i-start_i);
+                //     // Debug.LogFormat("LuaUtility[391:54] token.str:{0}", token.str);
+                //     NextChar();
+                //     start_i = code_i;
+                // }
                 else
                 {
                     NextChar();
                 }
             }
-            token.str = code.Substring(start_i, code_i-start_i);
+            token.str += code.Substring(start_i, code_i-start_i);
             // Debug.Log("read string : "+token.str+" start_i:"+start_i+" end_i:"+code_i);
             NextChar();
         }
@@ -697,6 +727,23 @@ public class LuaUtility
         return result;
     }
 
+    private static object CreateInstance(Type type)
+    {
+        if (type == typeof(string))
+        {
+            return "";
+        }
+        else if (type.IsArray)
+        {
+            var e_type = type.GetElementType();
+            return Array.CreateInstance(e_type, 1);
+        }
+        else
+        {
+            return System.Activator.CreateInstance(type);
+        }
+    }
+
     private static object ParseTableConstructor(LexState ls, Type type)
     {
         Token t = ls.t;
@@ -715,7 +762,7 @@ public class LuaUtility
                 if (realType != null)
                     type = realType;
                 
-                ret = System.Activator.CreateInstance(type);
+                ret = CreateInstance(type);
                 Assert.IsNotNull(ret, "cannot create instance for type : "+type.Name);
             }
             var isOk = ParseFieldList(ls, ref ret, type);
@@ -818,7 +865,7 @@ public class LuaUtility
 
     private static void AssignValue(LexState ls, ref object obj, Type type, int index, object keyNameObj)
     {
-        string logStr = string.Format("AssignValue keyNameObj:{0} type:{1} obj:{2} ls:{3}", keyNameObj, (type!=null?type.Name:"unknow type"), obj!=null?obj.ToString():"null", ls.Dump());
+        string logStr = string.Format("AssignValue keyNameObj:{0} type:{1} obj:{2} index:{3} ls:{4}", keyNameObj, (type!=null?type.Name:"unknow type"), obj!=null?obj.ToString():"null", index, ls.Dump());
         Log(logStr);
         if (type != null && type.IsGenericType)
         {
@@ -852,16 +899,32 @@ public class LuaUtility
                     var new_count = index-list.Count+1;
                     for (int i = 0; i < new_count; i++)
                     {
-                        if (fieldType != typeof(string))
-                            list.Add(System.Activator.CreateInstance(fieldType));
-                        else
-                            list.Add("");
+                        list.Add(CreateInstance(fieldType));
                     }
                 }
                 list[index] = ConvertToRealType(val, fieldType);
             }
             else
                 ThrowError("wrong type of obj : "+type.Name+" ls:"+ls.Dump());
+        }
+        else if (type != null && type.IsArray)
+        {
+            Type fieldType = type.GetElementType();
+            var val = ParseExp(ls, fieldType);
+            var valObj = ConvertToRealType(val, fieldType);
+
+            if (keyNameObj != null && keyNameObj is int)
+                index = (int)keyNameObj-1;
+            var arr = obj as Array;
+            if (arr.Length <= index)
+            {
+                //CAT_TODO:应该要做到只需一次创建,现在的方式太不科学了,遇到大点的数组就超级慢了
+                var new_arr = Array.CreateInstance(fieldType, index+1);
+                Array.Copy(arr, new_arr, arr.Length);
+                arr = new_arr;
+                obj = arr;
+            }
+            arr.SetValue(valObj, index);
         }
         else
         {
