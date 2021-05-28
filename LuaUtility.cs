@@ -14,6 +14,7 @@ public class LuaUtility
     {
         public bool SkipProperty = false;
         public int MaxLevel = -1;
+        public bool ExportRootType = false;//是否导出传入的类类型信息
     }
     private static bool isShowLog = false;
     static string TabStr = "\t";
@@ -115,7 +116,7 @@ public class LuaUtility
             if (members != null && members.Length > 0)
             {
                 //只有实际类型和定义的类型不一样才需要加上类型信息，即多态时才加
-                if (obj_member_type != type && level > 1)
+                if ((obj_member_type != type && level > 1) || (level == 1 && setting != null && setting.ExportRootType))
                     content.Append(tab_str + string.Format("[\"$type\"] = \"{0}\",\n", type.FullName+", "+type.Assembly.GetName().Name));
                 foreach (MemberInfo p in members)
                 {
@@ -217,6 +218,7 @@ public class LuaUtility
         public Token t;  /* current token */
         public Token lookahead;  /* look ahead token */
         public string code;
+        private int linenumber;
         private Dictionary<string,KeyWord> reserved_words;
         static int[] LuaI_CType = new int[]{
             0x00,  /* EOZ */
@@ -265,6 +267,7 @@ public class LuaUtility
             InitReserved();
             code = _code;
             code_i = -1;
+            linenumber = 1;
             NextChar();
             MoveToNextToken();
         }
@@ -281,7 +284,7 @@ public class LuaUtility
         public string Dump()
         {
             StringBuilder sb = new StringBuilder();
-            sb.Append("current : "+current+" token:"+t.ToString()+" code_i:"+code_i+" lookahead:"+(lookahead!=null?lookahead.ToString():"null"));
+            sb.Append("line : "+linenumber+" current : "+current+" token:"+t.ToString()+" code_i:"+code_i+" lookahead:"+(lookahead!=null?lookahead.ToString():"null"));
             return sb.ToString();
         }
 
@@ -390,6 +393,16 @@ public class LuaUtility
 
         private void ReadString(ref Token token, int del)
         {
+            void OnlySave(ref Token _token, string str)
+            {
+                _token.str = _token.str.Substring(0, _token.str.Length-1);
+                _token.str += str;
+            }
+            void ReadSave(ref Token _token, string str)
+            {
+                OnlySave(ref _token, str);
+                NextChar();
+            }
             NextChar();
             int start_i = code_i;
             token.str = "";
@@ -400,13 +413,28 @@ public class LuaUtility
                     LuaUtility.ThrowError("unfinished string");
                     break;
                 }
-                // else if (current == '\\')//CAT_TODO:处理\\符号
-                // {
-                //     token.str += code.Substring(start_i, code_i-start_i);
-                //     // Debug.LogFormat("LuaUtility[391:54] token.str:{0}", token.str);
-                //     NextChar();
-                //     start_i = code_i;
-                // }
+                else if (current == '\\')//CAT_TODO:处理\\符号的\x:十六进制 \u八进制 \z
+                {
+                    token.str += code.Substring(start_i, code_i-start_i+1);
+                    // Debug.LogFormat("LuaUtility[391:54] token.str:{0}", token.str+" start_i:"+start_i);
+                    NextChar();
+                    start_i = code_i;
+                    // Debug.LogFormat("LuaUtility[420:05] current:{0} start_i:{1}", current, start_i);
+                    if (current == 'a' || current == 'b' || current == 'f' || current == 'n' || current == 'r' || current == 't' || current == 'v' )
+                    {
+                        ReadSave(ref token, "\\"+current);
+                    }
+                    else if (current == '\n' || current == '\r')
+                    {
+                        IncLineNumber();
+                        OnlySave(ref token, "\n");
+                    }
+                    else if (current == '\\' || current == '\"' || current == '\'')
+                    {
+                        ReadSave(ref token, ((char)current).ToString());
+                    }
+                    start_i = code_i;
+                }
                 else
                 {
                     NextChar();
@@ -480,9 +508,12 @@ public class LuaUtility
         private void IncLineNumber()
         {
             int old = current;
+            Assert.IsTrue(CurrentIsNewLine());
             NextChar();
             if (CurrentIsNewLine() && current != old)
                 NextChar();
+            if (++linenumber >= int.MaxValue)
+                Assert.IsTrue(false, "line number too much");
         }
 
         private bool CurrentIsNewLine()
@@ -514,6 +545,11 @@ public class LuaUtility
                         break;
                     }
                 }
+                else if (current == '\n' || current == '\r')
+                {
+                   IncLineNumber();
+                   end_i = code_i;
+                }
                 else
                 {
                     NextChar();
@@ -530,8 +566,7 @@ public class LuaUtility
                 loop_max--;
                 if (current == '\n' || current == '\r')
                 {
-                    //换行符不管    
-                    NextChar();
+                    IncLineNumber();
                 }
                 else if (current == ' ' || current == '\f' || current == '\t' || current == '\v')
                 {
@@ -822,6 +857,8 @@ public class LuaUtility
 
     private static Type GetTypeByKeyName(object obj, Type type, string keyName)
     {
+        if (null == keyName)
+            return null;
         var mems = type.GetMember(keyName);
         if (mems.Length == 1)
         {
@@ -878,7 +915,13 @@ public class LuaUtility
                 Assert.IsNotNull(valObj, "value nil! code dump:"+ls.Dump());
                 if (keyNameObj == null)
                     keyNameObj = index + 1;
-                dic.Add(keyNameObj, valObj);
+                try
+                {
+                    dic.Add(keyNameObj, valObj);
+                }
+                catch(Exception e) {
+                    Debug.LogWarning(e.Message);
+                };
             }
             else if (obj is IList)
             {
@@ -931,7 +974,9 @@ public class LuaUtility
             var keyName = keyNameObj as string;
             var fieldType = type != null ? GetTypeByKeyName(obj, type, keyName) : null;
             var val = ParseExp(ls, fieldType);
-            var mems = type != null ? type.GetMember(keyName) : null;
+            MemberInfo[] mems = null;
+            if (null != keyName)
+                mems = type != null ? type.GetMember(keyName) : null;
             // Debug.Log("ParseField keyName : "+keyName+" fieldType:"+fieldType?.Name);
             if (mems != null && mems.Length == 1 && val != null)
             {
