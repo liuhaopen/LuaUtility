@@ -103,7 +103,7 @@ namespace Tests
         [Test]
         public void TestFromLuaIntExtraData()
         {
-            var str = @"return {i=1, ii=3, t={}, f=1.23, b=false, tt={1,2,3}}";
+            var str = @"return {i=1, ii=3, t={}, f=1.23, b=false, tt={1,2,3, ttt={a=1}}}";
             LuaUtility.IsShowLog = true;
             var obj = LuaUtility.FromLua<TestLuaInt>(str);
             LuaUtility.IsShowLog = false;
@@ -179,12 +179,33 @@ namespace Tests
             var str = "return {str=\""+TestStr+"\"}";
             var obj = LuaUtility.FromLua<TestLuaString>(str);
             Assert.IsNotNull(obj);
-            Assert.AreEqual(obj.str, TestStr);
+            Assert.AreEqual(TestStr, obj.str);
 
             str = @"return {str='"+TestStr+"'}";
             obj = LuaUtility.FromLua<TestLuaString>(str);
             Assert.IsNotNull(obj);
-            Assert.AreEqual(obj.str, TestStr);
+            Assert.AreEqual(TestStr, obj.str);
+
+            var str_with_line = @"abcde\
+            fghijk";
+            str = "return {str=\""+str_with_line+"\"}";
+            Debug.LogFormat("LuaUtilityTest[191:04] str:{0}", str);
+            obj = LuaUtility.FromLua<TestLuaString>(str);
+            Assert.IsNotNull(obj);
+            //注意expect_str是故意和str_with_line不一样的，因为lua会把\符号给忽略掉或者转义
+            var expect_str = @"abcde
+            fghijk";
+            Assert.AreEqual(expect_str, obj.str);
+
+            //CAT_TODO:加上\符号的转义测试
+            // str_with_line = @"abcde\\a\\bfghijk";
+            // str = "return {str=\""+str_with_line+"\"}";
+            // Debug.LogFormat("LuaUtilityTest[191:04] str:{0}", str);
+            // obj = LuaUtility.FromLua<TestLuaString>(str);
+            // Assert.IsNotNull(obj);
+            // //注意expect_str是故意和str_with_line不一样的，因为lua会把\符号给忽略掉或者转义
+            // expect_str = @"abcdefghijk";
+            // Assert.AreEqual(expect_str, obj.str);
 
             string test_str_mut = @"123456
                 多行字符串1
@@ -194,7 +215,7 @@ namespace Tests
             str = @"return {str=[["+test_str_mut+"]]}";
             obj = LuaUtility.FromLua<TestLuaString>(str);
             Assert.IsNotNull(obj);
-            Assert.AreEqual(obj.str, test_str_mut);
+            Assert.AreEqual(test_str_mut, obj.str);
         }
 
         [Test]
@@ -608,7 +629,7 @@ namespace Tests
         }
 
         [Test]
-        public void TestFromLuaStaticArray()
+        public void TestToLuaStaticArray()
         {
             var obj = new TestDoubleStaticArray();
             for (int i = 0; i < obj.ds.Length; i++)
@@ -624,7 +645,7 @@ namespace Tests
         }
 
         [Test]
-        public void TestToLuaStaticArray()
+        public void TestFromLuaStaticArray()
         {
             var code = @"{ds={0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11}}";
             var obj_new = LuaUtility.FromLua<TestDoubleStaticArray>("return "+code);
@@ -644,6 +665,7 @@ namespace Tests
             AssertFloat(55.123, obj_new2.ds[2]);
 
         }
+
     }
 
     public class TestLuaInt
