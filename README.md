@@ -14,10 +14,10 @@ TestClass obj = new TestClass(){a=1, b=true, c="aaa"};
 string code = LuaUtility.ToLua(obj);
 //result : code == "{a=1, b=true, c="aaa"}"
 ```
-
-Support Lua BNF:
-    Exp ::= nil | false | true | Nunber | String | TableconStructor
-    TableconStructor ::= ‘{’ [FieldList] ‘}’
-    FieldList ::= Field {FieldSep Field} [FieldSep]
-    Field ::= ‘[’ Exp ‘]’ ‘=’ Exp | Name ‘=’ Exp | Exp
-    FieldSep ::= ‘,’ | ‘;’
+  
+### Support Lua BNF:  
+&ensp;Exp ::= nil | false | true | Nunber | String | TableconStructor  
+&ensp;TableconStructor ::= ‘{’ [FieldList] ‘}’  
+&ensp;FieldList ::= Field {FieldSep Field} [FieldSep]  
+&ensp;Field ::= ‘[’ Exp ‘]’ ‘=’ Exp | Name ‘=’ Exp | Exp  
+&ensp;FieldSep ::= ‘,’ | ‘;’  
