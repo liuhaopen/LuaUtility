@@ -16,6 +16,7 @@ string code = LuaUtility.ToLua(obj);
 ```
   
 ### Support Lua BNF:  
+&ensp;Stat ::= **local** Name ‘=’ Exp **return** Name | **return** Exp  
 &ensp;Exp ::= nil | false | true | Nunber | String | TableconStructor  
 &ensp;TableconStructor ::= ‘{’ [FieldList] ‘}’  
 &ensp;FieldList ::= Field {FieldSep Field} [FieldSep]  
