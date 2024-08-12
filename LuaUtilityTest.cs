@@ -468,11 +468,11 @@ namespace Tests
             var str = LuaUtility.ToLua(data);
             Assert.IsNotNull(str);
             Assert.IsTrue(str.Contains("dic = {"));
-            Assert.IsTrue(str.Contains("a = 1.23,"));
-            Assert.IsTrue(str.Contains("c = 4,"));
-            Assert.IsTrue(str.Contains("d = -5.01,"));
-            Assert.IsTrue(str.Contains("e = 12345,"));
-            Assert.IsTrue(str.Contains("b = -0.3333,"));
+            Assert.IsTrue(str.Contains("[\"a\"] = 1.23,"));
+            Assert.IsTrue(str.Contains("[\"c\"] = 4,"));
+            Assert.IsTrue(str.Contains("[\"d\"] = -5.01,"));
+            Assert.IsTrue(str.Contains("[\"e\"] = 12345,"));
+            Assert.IsTrue(str.Contains("[\"b\"] = -0.3333,"));
         }
 
         [Test]
@@ -547,6 +547,54 @@ namespace Tests
             Assert.AreEqual("abcdefg_ ieow", obj.dic[2]);
             Assert.AreEqual("uwioerlskdjfo:123342\\354-=|", obj.dic[555]);
         }
+
+        [Test]
+        public void TestFromLuaDic4()
+        {
+            string test_code = "return {[0]=\"haha\", \"abcdefg_ ieow\", \"uwioerlskdjfo:123342\\354-=|\"}";
+            LuaUtility.IsShowLog = true;
+            var obj = LuaUtility.FromLua<Dictionary<int,string>>(test_code);
+            LuaUtility.IsShowLog = false;
+            Assert.IsNotNull(obj);
+            Assert.IsTrue(obj.ContainsKey(0));
+            Assert.IsTrue(obj.ContainsKey(1));
+            Assert.IsTrue(obj.ContainsKey(2));
+            Assert.AreEqual("haha", obj[0]);
+            Assert.AreEqual("abcdefg_ ieow", obj[1]);
+            Assert.AreEqual("uwioerlskdjfo:123342\\354-=|", obj[2]);
+
+
+            test_code = "return {[0]=\"00\", [2]=\"22\", \"11\"}";
+            LuaUtility.IsShowLog = true;
+            obj = LuaUtility.FromLua<Dictionary<int,string>>(test_code);
+            LuaUtility.IsShowLog = false;
+            Assert.IsNotNull(obj);
+            Assert.IsTrue(obj.ContainsKey(0));
+            Assert.IsTrue(obj.ContainsKey(1));
+            Assert.IsTrue(obj.ContainsKey(2));
+            Assert.AreEqual("00", obj[0]);
+            Assert.AreEqual("11", obj[1]);
+            Assert.AreEqual("22", obj[2]);
+
+            test_code = "return {[0]=\"00\", [5]=\"55\", [11]=\"1111\", \"11\", \"22\", [3]=\"33\"}";
+            LuaUtility.IsShowLog = true;
+            obj = LuaUtility.FromLua<Dictionary<int,string>>(test_code);
+            LuaUtility.IsShowLog = false;
+            Assert.IsNotNull(obj);
+            Assert.IsTrue(obj.ContainsKey(0));
+            Assert.IsTrue(obj.ContainsKey(1));
+            Assert.IsTrue(obj.ContainsKey(2));
+            Assert.IsTrue(obj.ContainsKey(3));
+            Assert.IsTrue(obj.ContainsKey(5));
+            Assert.IsTrue(obj.ContainsKey(11));
+            Assert.AreEqual("00", obj[0]);
+            Assert.AreEqual("11", obj[1]);
+            Assert.AreEqual("22", obj[2]);
+            Assert.AreEqual("33", obj[3]);
+            Assert.AreEqual("55", obj[5]);
+            Assert.AreEqual("1111", obj[11]);
+        }
+
 
         [Test]
         public void TestFromLuaEnum()
